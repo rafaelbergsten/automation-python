@@ -25,7 +25,6 @@ s3 = session.resource('s3')
 @click.group()
 def cli():
     """Deploy websites to AWS"""
-    pass
 
 
 @cli.command('list-buckets')
@@ -39,7 +38,7 @@ def list_buckets():
 @click.argument('bucket')
 def list_buckets_objects(bucket):
     """List objects in an s3 buckets"""
-    for obj in s3.Bucket('postigram-imagem').objects.all():
+    for obj in s3.Bucket(bucket).objects.all():
         print(obj)
 
 
@@ -56,11 +55,11 @@ def setup_bucket(bucket):
                 Bucket=bucket,
                 CreateBucketConfiguration={
                     'LocationConstraint': session.region_name})
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'BucketAlreadyOwnedByYou':
+    except ClientError as error:
+        if error.response['Error']['Code'] == 'BucketAlreadyOwnedByYou':
             s3_bucket = s3.Bucket(bucket)
         else:
-            raise e
+            raise error
 
     policy = """
     {
@@ -80,8 +79,7 @@ def setup_bucket(bucket):
     pol = s3_bucket.Policy()
     pol.put(Policy=policy)
 
-    ws = s3_bucket.Website()
-    ws.put(WebsiteConfiguration={
+    s3_bucket.Website().put(WebsiteConfiguration={
         'ErrorDocument': {
             'Key': 'error.html'
         },
@@ -90,16 +88,15 @@ def setup_bucket(bucket):
         }
     })
 
-    return
-
 
 def upload_file(s3_bucket, path, key):
+    """Upload file to bucket"""
     content_type = mimetypes.guess_type(key)[0] or 'text/plain'
     s3_bucket.upload_file(
         path,
         key,
         ExtraArgs={
-            'ContentType': 'text/html'
+            'ContentType': content_type
         })
 
 
@@ -112,11 +109,11 @@ def sync(pathname, bucket):
     root = Path(pathname).expanduser().resolve()
 
     def handle_directory(target):
-        for p in target.iterdir():
-            if p.is_dir():
-                handle_directory(p)
-            if p.is_file():
-                upload_file(s3_bucket, str(p), str(p.relative_to(root)))
+        for path in target.iterdir():
+            if path.is_dir():
+                handle_directory(path)
+            if path.is_file():
+                upload_file(s3_bucket, str(path), str(path.relative_to(root)))
     handle_directory(root)
 
 
